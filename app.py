@@ -4,35 +4,79 @@ import json
 from pathlib import Path
 from flask import Flask, jsonify, render_template, request
 from PIL import Image, UnidentifiedImageError
+import numpy as np
 from inference import DigitModel, prepare
+from character_preprocessing import segment_line
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 model = DigitModel(ROOT / 'models/mnist_cnn_weights.npz')
 metrics = json.loads((ROOT / 'models/metrics.json').read_text())
+character_model = DigitModel(ROOT / 'models/characters/characters_cnn_weights.npz')
+labels = json.loads((ROOT / 'models/characters/labels.json').read_text(encoding='utf-8'))
+character_metrics = json.loads((ROOT / 'models/characters/metrics.json').read_text(encoding='utf-8'))
 
 @app.get('/')
 def index():
-    return render_template('index.html', accuracy=f"{metrics['test_accuracy']*100:.2f}")
+    return render_template('characters.html',
+                           test_examples=character_metrics['test_examples'], symbols=' '.join(labels[62:]),
+                           mode_scores={k:f"{v['accuracy']*100:.1f}" for k,v in character_metrics['mode_accuracy'].items()})
 
 @app.get('/healthz')
 def health():
-    return jsonify(status='ok', model='MNIST CNN')
+    return jsonify(status='ok', model='GlyphDex character CNN', classes=len(labels))
 
 @app.post('/predict')
 def predict():
     try:
         payload = request.get_json()
+        if not isinstance(payload, dict) or not isinstance(payload.get('image'), str):
+            raise ValueError('Draw some characters and try again.')
         encoded = payload['image'].split(',', 1)[1]
         raw = base64.b64decode(encoded, validate=True)
         with Image.open(io.BytesIO(raw)) as image:
             if image.width > 1024 or image.height > 1024:
                 raise ValueError('Image is too large.')
+            if payload.get('mode'):
+                return predict_line(image, payload['mode'])
             probabilities = model.predict(prepare(image))[0]
         return jsonify(digit=int(probabilities.argmax()), probabilities=probabilities.tolist())
     except (ValueError, KeyError, IndexError, TypeError, UnidentifiedImageError, OSError):
-        return jsonify(error='Draw one digit on the canvas and try again.'), 400
+        return jsonify(error='Draw on the canvas and try again. Use an image no larger than 1024 × 1024.'), 400
+
+
+@app.errorhandler(413)
+def oversized(_error):
+    return jsonify(error='The drawing is too large. Please keep the image under 2 MB.'), 413
+
+
+def predict_line(image, mode):
+    if mode not in ('mixed', 'digits', 'uppercase', 'lowercase', 'symbols'):
+        return jsonify(error='Choose a valid recognition mode.'), 400
+    try:
+        glyphs, boxes = segment_line(image)
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    # Bound convolution working memory on Render's free 512 MB service.
+    probabilities = np.concatenate([character_model.predict(glyphs[i:i+4]) for i in range(0, len(glyphs), 4)])
+    allowed = {'mixed': np.arange(len(labels)), 'digits': np.arange(10),
+               'uppercase': np.arange(10,36), 'lowercase': np.arange(36,62),
+               'symbols': np.arange(62,len(labels))}[mode]
+    characters = []
+    text = ''
+    typical_width = max(float(np.median([b[2]-b[0] for b in boxes])), 12)
+    for i, (row, box) in enumerate(zip(probabilities, boxes)):
+        ranking = allowed[np.argsort(row[allowed])[::-1][:3]]
+        best = int(ranking[0])
+        space = bool(i and box[0]-boxes[i-1][2] > max(typical_width*.95, image.height*.22))
+        if space:
+            text += ' '
+        text += labels[best]
+        characters.append({'character':labels[best], 'confidence':float(row[best]), 'box':box,
+                           'space_before':space, 'experimental':labels[best]=='=',
+                           'alternatives':[{'character':labels[int(j)],'confidence':float(row[j])} for j in ranking]})
+    return jsonify(text=text, characters=characters, mode=mode)
 
 if __name__ == '__main__':
     app.run(host='127.0.0.1', port=5000)

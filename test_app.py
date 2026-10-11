@@ -16,7 +16,7 @@ class AppTests(unittest.TestCase):
     def test_web_prediction_and_empty_canvas(self):
         client = app.test_client()
         self.assertEqual(client.get('/healthz').status_code, 200)
-        self.assertIn(b'98.86%', client.get('/').data)
+        self.assertIn(b'Your handwriting.', client.get('/').data)
         data = np.load(Path(__file__).parent / 'models/verification.npz')
         image = Image.fromarray((data['images'][0,:,:,0]*255).astype('uint8')).resize((280,280))
         def payload(image):

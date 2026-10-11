@@ -1,28 +1,42 @@
-# DigiDex web app
+# GlyphDex — Handwriting recognition
 
-Draw a single handwritten digit (0–9) and get a CNN prediction with probabilities for all ten classes. The model was trained in Google Colab and achieved **98.86% accuracy on 10,000 held-out MNIST test images**.
+Draw a short line of **separate digits, uppercase/lowercase letters and supported symbols**. GlyphDex splits the drawing into characters and reads them from left to right. Choose mixed, digits, uppercase, lowercase or symbols mode; inspect confidence and tap alternatives to correct a reading. Undo strokes and copy the result.
+
+Supported: `0–9`, `A–Z`, `a–z`, and `+ - / < > # $ % & [ ] { } × ÷ ± ≤ ≥ ≠ ≈ =` (83 classes). The equals sign uses generated two-stroke training examples and is experimental. `!`, `?`, `@`, commas, parentheses and other unlisted punctuation are not trained classes.
+
+Write one spaced line with up to 32 characters. Dots and stacked strokes remain together when their horizontal ranges overlap. Joined cursive, overlapping characters, multiple lines and badly separated strokes are outside this first version. Spaces are estimated from larger gaps. O/0, I/l/1, and letter case can be visually ambiguous; recognition modes narrow the possible labels without inflating displayed confidence.
 
 **Live app:** [digidex-dakshesh.onrender.com](https://digidex-dakshesh.onrender.com/)
 
 ## Trained model
 
-Both model formats are committed in [`models/`](models/):
+The character model was trained in the owner's logged-in **Google Colab T4 GPU** session. Full Keras and equivalent NumPy weights are committed in [`models/characters/`](models/characters/), with labels, measured metrics, verification examples and a model card. Training and inference share [`character_preprocessing.py`](character_preprocessing.py).
+
+Held-out accuracy by recognition mode: digits **99.20%**, uppercase **97.22%**, lowercase **92.83%**, symbols **98.08%**. Each result assumes the correct focused mode is selected; these are individual-character results, not mixed-mode or complete-line accuracy. Synthetic `=` is excluded. See the model card for sample counts and limitations.
+
+Open [`GlyphDex_Characters_Colab.ipynb`](GlyphDex_Characters_Colab.ipynb) in Colab, select a free T4 GPU and run the cell. It downloads EMNIST ByClass and selected HASYv2 classes, builds disjoint training/validation/test sets, trains and exports a ZIP. Extract that ZIP into `models/characters/`. Training requires TensorFlow; the deployed app only needs NumPy, Pillow, Flask and Gunicorn. Complete-line accuracy is not established by the individual-character test metrics.
+
+The original **MNIST-only** model remains in [`models/`](models/) for compatibility with requests that omit `mode`:
 
 - [`mnist_cnn.keras`](models/mnist_cnn.keras): complete Keras model.
 - [`mnist_cnn_weights.npz`](models/mnist_cnn_weights.npz): equivalent weights used by the lightweight NumPy web runtime.
 - [`metrics.json`](models/metrics.json): measured results; [`MODEL_CARD.md`](models/MODEL_CARD.md): training details and limitations.
 
-Retrain using [`DigiDex_Colab_Training.ipynb`](DigiDex_Colab_Training.ipynb) in Colab. Run the training cell, then download its artifact ZIP. Training requires TensorFlow; the deployed app only needs NumPy, Pillow, Flask and Gunicorn.
+Its original training notebook is [`DigiDex_Colab_Training.ipynb`](DigiDex_Colab_Training.ipynb); its test accuracy is 98.86% on 10,000 MNIST test digits.
 
 ## Run locally
 
 ```bash
 pip install -r requirements.txt
 python app.py
-python -m unittest -v test_app
+python -m unittest -v test_app test_characters
 ```
 
-Open http://127.0.0.1:5000. Tests compare the runtime against 100 original Colab Keras predictions and check the HTTP prediction flow and input errors.
+Open http://127.0.0.1:5000. Tests compare NumPy inference with Colab Keras outputs for both exports, check mixed-character HTTP recognition, dotted/stacked glyph segmentation, blank drawings, limits and malformed input. Inference processes at most four characters at once to bound memory on Render Free.
+
+### Prediction API
+
+`POST /predict` accepts `{"image":"data:image/png;base64,...","mode":"mixed"}`. The canvas is white ink on black. Supported modes: `mixed`, `digits`, `uppercase`, `lowercase`, `symbols`. The response includes `text`, ordered `characters`, canvas-coordinate bounding boxes, confidence and three alternatives. Omitting `mode` retains the original single-digit response. Images are capped at 1024×1024 and 2 MB per request. Drawings are processed in memory and are not stored.
 
 ## Render deployment
 
@@ -32,10 +46,10 @@ Create a Python web service from this repository on the Free plan. Build: `pip i
 
 The original research notebooks and project description are preserved below.
 
-# 👩‍💻 DigiDex 
+# 👩‍💻 DigiDex
 # Determining Digits Smartly
 
-# 🔢 Building an ML Model for digit recognition 
+# 🔢 Building an ML Model for digit recognition
 
 🤖 In this project, we have created an ML model that uses CNN classification algorithm to read digits and identify them. We have worked upon a standard MNIST dataset of thousands of digits. By using this dataset, we have trained, tested and validated our model.
 
@@ -58,7 +72,7 @@ Through this project we got to learn a lot about Machine Learning and AI Models,
 
 1. Python
 2. Libraries: matplotlib, pandas, keras, scikit, TensorFlow etc.
-3. Classification algorithms: CNN, Randon Forest,SVM, KNN, DBN, MLP. 
+3. Classification algorithms: CNN, Randon Forest,SVM, KNN, DBN, MLP.
 4. Google Collab
 
 
