@@ -2,6 +2,8 @@
 
 Draw a single handwritten digit (0–9) and get a CNN prediction with probabilities for all ten classes. The model was trained in Google Colab and achieved **98.86% accuracy on 10,000 held-out MNIST test images**.
 
+**Live app:** [digidex-dakshesh.onrender.com](https://digidex-dakshesh.onrender.com/)
+
 ## Trained model
 
 Both model formats are committed in [`models/`](models/):
