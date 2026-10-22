@@ -8,6 +8,7 @@ import numpy as np
 from inference import DigitModel, prepare
 from character_preprocessing import segment_line
 from recognition_quality import assess
+from dataset_routes import install_dataset
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__)
@@ -20,6 +21,7 @@ character_metrics = json.loads((ROOT / 'models/characters/metrics.json').read_te
 mixed_candidate_weight = float(character_metrics.get('routing',{}).get('mixed_candidate_weight',1.0))
 baseline_model = (DigitModel(ROOT / 'models/characters/baseline_cnn_weights.npz')
                   if mixed_candidate_weight < 1 else None)
+install_dataset(app,labels)
 
 @app.get('/')
 def index():

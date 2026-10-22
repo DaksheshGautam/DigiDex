@@ -15,11 +15,15 @@ from PIL import Image
 def evaluate(paths, client, labels, split_report=None):
     allowed_modes={'mixed','digits','uppercase','lowercase','symbols'}
     test_writers=None
+    test_drawings=None
     if split_report is not None:
         report=json.loads(Path(split_report).read_text(encoding='utf-8'))
-        test_writers={w for w,s in report['writers'].items() if s=='test'}
-        if not test_writers:
-            raise ValueError('No test writers in the split report.')
+        if report.get('split_strategy')=='drawing':
+            test_drawings={g for g,s in report['groups'].items() if s=='test'}
+            if not test_drawings:raise ValueError('No test drawings in the split report.')
+        else:
+            test_writers={w for w,s in report['writers'].items() if s=='test'}
+            if not test_writers:raise ValueError('No test writers in the split report.')
     by_mode={}
     results=[]
     seen=set()
@@ -29,6 +33,8 @@ def evaluate(paths, client, labels, split_report=None):
             raise ValueError('Unsupported export schema.')
         for line in payload.get('lines',[]):
             if test_writers is not None and line.get('writer_group') not in test_writers:
+                continue
+            if test_drawings is not None and line.get('writer_group','')+':'+line.get('drawing_id','') not in test_drawings:
                 continue
             expected=line.get('text','')
             if (not expected or expected.strip()!=expected or len(expected.replace(' ',''))>32
@@ -57,7 +63,7 @@ def evaluate(paths, client, labels, split_report=None):
                             'exact_match':exact,'needs_confirmation':uncertain,'error':result.get('error')})
     for entry in by_mode.values():
         entry['exact_line_accuracy']=entry['exact_matches']/entry['lines']
-    return {'held_out_writers':test_writers is not None,'note':'Whole-line checks including spaces, segmentation and rejection. Exploratory unless real writer separation was verified.',
+    return {'held_out_writers':test_writers is not None,'held_out_drawings':test_drawings is not None,'note':'Whole-line checks including spaces, segmentation and rejection. Drawing splits evaluate personalization, not unseen writers. Exploratory without a split report.',
             'by_mode':by_mode,'results':results}
 
 
