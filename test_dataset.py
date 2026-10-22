@@ -10,6 +10,7 @@ from PIL import Image,ImageDraw
 from dataset_routes import install_dataset,attempts
 from dataset_store import SQLiteTestStore,validate_sample,DatasetValidationError
 from correction_data import prepare_exports
+from evaluate_lines import evaluate
 
 
 def sample(label='+',offset=0,kind='glyph'):
@@ -94,6 +95,20 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(sum(len(arrays[s+'_labels']) for s in ('train','validation','test')),6)
         self.assertEqual(report['split_strategy'],'drawing')
         self.assertIn('does not measure accuracy on unseen writers',report['note'])
+
+    def test_line_evaluation_uses_same_drawing_split_as_training(self):
+        class Reply:
+            status_code=200
+            def get_json(self):return {'text':'+','characters':[{'uncertain':False}]}
+        class Client:
+            def post(self,*args,**kwargs):return Reply()
+        lines=[sample(kind='line',offset=i) for i in range(2)]
+        path=Path(self.temp.name)/'lines.json';report=Path(self.temp.name)/'splits.json'
+        path.write_text(json.dumps({'schema_version':1,'lines':lines}))
+        report.write_text(json.dumps({'split_strategy':'drawing','groups':{'owner:drawing-0':'train','owner:drawing-1':'test'}}))
+        result=evaluate([path],Client(),list('+-'),report)
+        self.assertTrue(result['held_out_drawings']);self.assertFalse(result['held_out_writers'])
+        self.assertEqual(result['by_mode']['symbols']['lines'],1)
 
 
 if __name__=='__main__':unittest.main()

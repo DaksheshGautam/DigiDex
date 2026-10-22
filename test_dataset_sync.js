@@ -26,5 +26,13 @@ const glyph=label=>({client_id:'owner:draw:0',kind:'glyph',label});
   restored.fetcher=async()=>reply({error:'expired'},401);restored.capture(glyph('E'));await restored.flush();
   assert.equal(restored.state().pending,1);assert.equal(restored.state().authenticated,false);
   assert.equal(restored.capture(glyph('F')),false);
+  const originalSet=global.setTimeout,originalClear=global.clearTimeout,delays=[];
+  try{
+    global.setTimeout=(callback,delay)=>{delays.push(delay);return delays.length};global.clearTimeout=()=>{};
+    restored.authenticated=true;restored.enabled=true;restored.autoFlush=true;
+    restored.fetcher=async()=>reply({error:'temporarily unavailable'},503);
+    await restored.flush();await restored.flush();
+    assert.deepEqual(delays,[1000,2000]);assert.equal(restored.state().pending,1);
+  }finally{global.setTimeout=originalSet;global.clearTimeout=originalClear;restored.autoFlush=false}
   console.log('Dataset queue: offline persistence, relabeling, revision races, credential privacy and expired-session checks passed.');
 })().catch(error=>{console.error(error);process.exitCode=1});
