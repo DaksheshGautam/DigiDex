@@ -40,7 +40,29 @@ def segment_line(image, max_characters=32):
         if ink[top:bottom, left:right].sum() < 3:
             continue
         boxes.append([left, top, right, bottom])
-        glyphs.append(normalize_glyph(image.crop(boxes[-1])))
+    # A slightly offset i/j dot can occupy different columns from its stem.
+    # Merge only a small detached mark above a much taller neighbouring stroke;
+    # ordinary adjacent letters and horizontal symbol strokes remain separate.
+    merged = True
+    while merged:
+        merged = False
+        for i, dot in enumerate(boxes):
+            dw, dh = dot[2]-dot[0], dot[3]-dot[1]
+            for j, stem in enumerate(boxes):
+                if i == j:
+                    continue
+                sh = stem[3]-stem[1]
+                gap = max(stem[0]-dot[2], dot[0]-stem[2], 0)
+                if (dh <= sh*.28 and dw <= sh*.23 and dot[3] < stem[1]
+                        and stem[1]-dot[3] <= sh*.55 and gap <= sh*.16):
+                    boxes[j] = [min(dot[0],stem[0]),dot[1],max(dot[2],stem[2]),stem[3]]
+                    boxes.pop(i)
+                    merged = True
+                    break
+            if merged:
+                break
+    boxes.sort(key=lambda b:b[0])
+    glyphs = [normalize_glyph(image.crop(box)) for box in boxes]
     if not glyphs:
         raise ValueError('Draw some characters first.')
     if len(glyphs) > max_characters:

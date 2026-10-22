@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Opt-in website corrections must not enter the public repository.
+glyphdex-corrections*.json
+website_corrections*.npz
+website_corrections*.json

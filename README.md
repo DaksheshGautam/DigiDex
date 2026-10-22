@@ -1,10 +1,10 @@
 # GlyphDex — Handwriting recognition
 
-Draw a short line of **separate digits, uppercase/lowercase letters and supported symbols**. GlyphDex splits the drawing into characters and reads them from left to right. Choose mixed, digits, uppercase, lowercase or symbols mode; inspect confidence and tap alternatives to correct a reading. Undo strokes and copy the result.
+Draw a short line of **separate digits, uppercase/lowercase letters and supported symbols**. GlyphDex splits the drawing into characters and reads them from left to right. Choose mixed, digits, uppercase, lowercase or symbols mode. Uncertain readings show `?`; confirm a suggestion or enter the correct character before copying. Undo strokes and copy the result.
 
 Supported: `0–9`, `A–Z`, `a–z`, and `+ - / < > # $ % & [ ] { } × ÷ ± ≤ ≥ ≠ ≈ =` (83 classes). The equals sign uses generated two-stroke training examples and is experimental. `!`, `?`, `@`, commas, parentheses and other unlisted punctuation are not trained classes.
 
-Write one spaced line with up to 32 characters. Dots and stacked strokes remain together when their horizontal ranges overlap. Joined cursive, overlapping characters, multiple lines and badly separated strokes are outside this first version. Spaces are estimated from larger gaps. O/0, I/l/1, and letter case can be visually ambiguous; recognition modes narrow the possible labels without inflating displayed confidence.
+Write one spaced line with up to 32 characters. Dots and stacked strokes remain together when their horizontal ranges overlap; a small, slightly offset dot above a neighbouring stem is also merged. Joined cursive, overlapping characters, multiple lines and badly separated strokes remain unsupported. Spaces are estimated from larger gaps. O/0, I/l/1, and letter case can be visually ambiguous. Rejection uses conservative score, margin and shape rules, plus known mixed-mode ambiguities; it is not calibrated and cannot detect every unsupported input or confidently wrong answer.
 
 **Live app:** [digidex-dakshesh.onrender.com](https://digidex-dakshesh.onrender.com/)
 
@@ -14,7 +14,13 @@ The character model was trained in the owner's logged-in **Google Colab T4 GPU**
 
 Held-out accuracy by recognition mode: digits **99.20%**, uppercase **97.22%**, lowercase **92.83%**, symbols **98.08%**. Each result assumes the correct focused mode is selected; these are individual-character results, not mixed-mode or complete-line accuracy. Synthetic `=` is excluded. See the model card for sample counts and limitations.
 
-Open [`GlyphDex_Characters_Colab.ipynb`](GlyphDex_Characters_Colab.ipynb) in Colab, select a free T4 GPU and run the cell. It downloads EMNIST ByClass and selected HASYv2 classes, builds disjoint training/validation/test sets, trains and exports a ZIP. Extract that ZIP into `models/characters/`. Training requires TensorFlow; the deployed app only needs NumPy, Pillow, Flask and Gunicorn. Complete-line accuracy is not established by the individual-character test metrics.
+The original training run is preserved in [`GlyphDex_Characters_Colab.ipynb`](GlyphDex_Characters_Colab.ipynb). The new [`GlyphDex_v2_Colab.ipynb`](GlyphDex_v2_Colab.ipynb) has 11 numbered code sections for GPU setup, downloads, data preparation, stroke augmentation, training, separate mode evaluation, baseline comparison and export. Use **Runtime → Run all** on a free Colab T4. It uses more EMNIST examples and varied stroke thickness. Compare its candidate with the existing model before replacing deployed weights. Training requires TensorFlow; the deployed app only needs NumPy, Pillow, Flask and Gunicorn. Complete-line and real website accuracy require their own held-out evaluation.
+
+### Corrected website examples
+
+After checking every character and bounding box, choose **Save checked examples**. Examples are stored only in that browser's local storage. **Export examples** downloads a JSON file; no automatic upload or retraining takes place. Export before clearing browser data. Draw one character at a time if the segmentation boxes are wrong; a label correction cannot fix a crop containing two characters.
+
+Validate exports with `python correction_data.py writer1.json writer2.json writer3.json`. It produces `website_corrections.npz` and a split report. At least three distinct real writers are required: each writer stays entirely in train, validation or test. Browser group identifiers are only a starting point; merge groups from the same person and separate exports for different people before preparing the dataset. Exact duplicate images with conflicting labels or writer groups are rejected. These exports are not committed to the public repository. No real website accuracy is claimed until those independent examples exist and are evaluated.
 
 The original **MNIST-only** model remains in [`models/`](models/) for compatibility with requests that omit `mode`:
 
@@ -29,14 +35,14 @@ Its original training notebook is [`DigiDex_Colab_Training.ipynb`](DigiDex_Colab
 ```bash
 pip install -r requirements.txt
 python app.py
-python -m unittest -v test_app test_characters
+python -m unittest -v test_app test_characters test_quality
 ```
 
 Open http://127.0.0.1:5000. Tests compare NumPy inference with Colab Keras outputs for both exports, check mixed-character HTTP recognition, dotted/stacked glyph segmentation, blank drawings, limits and malformed input. Inference processes at most four characters at once to bound memory on Render Free.
 
 ### Prediction API
 
-`POST /predict` accepts `{"image":"data:image/png;base64,...","mode":"mixed"}`. The canvas is white ink on black. Supported modes: `mixed`, `digits`, `uppercase`, `lowercase`, `symbols`. The response includes `text`, ordered `characters`, canvas-coordinate bounding boxes, confidence and three alternatives. Omitting `mode` retains the original single-digit response. Images are capped at 1024×1024 and 2 MB per request. Drawings are processed in memory and are not stored.
+`POST /predict` accepts `{"image":"data:image/png;base64,...","mode":"mixed"}`. The canvas is white ink on black. Supported modes: `mixed`, `digits`, `uppercase`, `lowercase`, `symbols`. The response includes `text`, ordered `characters`, `suggestion`, `uncertain`, `reasons`, canvas-coordinate bounding boxes, model scores and three alternatives. Rejected characters use `?`, which is a placeholder rather than a trained punctuation class. Omitting `mode` retains the original single-digit response. Images are capped at 1024×1024 and 2 MB per request. Server predictions are processed in memory and are not stored; optional checked examples remain in the browser until explicitly exported.
 
 ## Render deployment
 

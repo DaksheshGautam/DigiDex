@@ -68,7 +68,9 @@ class CharacterModelTests(unittest.TestCase):
             line.paste(glyph,(i*110+10,8))
         reply=client.post('/predict',json=payload(line))
         self.assertEqual(reply.status_code,200)
-        self.assertEqual(''.join(c['character'] for c in reply.json['characters']),'A7+')
+        self.assertEqual(''.join(c['suggestion'] for c in reply.json['characters']),'A7+')
+        for c in reply.json['characters']:
+            self.assertEqual(c['character']=='?',c['uncertain'])
         boxes=[c['box'] for c in reply.json['characters']]
         self.assertTrue(all(boxes[i][2]<boxes[i+1][0] for i in range(2)))
         self.assertEqual(client.get('/healthz').json['classes'],83)

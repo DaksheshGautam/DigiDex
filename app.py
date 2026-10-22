@@ -7,6 +7,7 @@ from PIL import Image, UnidentifiedImageError
 import numpy as np
 from inference import DigitModel, prepare
 from character_preprocessing import segment_line
+from recognition_quality import assess
 
 ROOT = Path(__file__).resolve().parent
 app = Flask(__name__)
@@ -25,7 +26,8 @@ def index():
 
 @app.get('/healthz')
 def health():
-    return jsonify(status='ok', model='GlyphDex character CNN', classes=len(labels))
+    return jsonify(status='ok', model='GlyphDex character CNN', classes=len(labels),
+                   version=character_metrics.get('version','v1'), rejection=True)
 
 @app.post('/predict')
 def predict():
@@ -72,8 +74,11 @@ def predict_line(image, mode):
         space = bool(i and box[0]-boxes[i-1][2] > max(typical_width*.95, image.height*.22))
         if space:
             text += ' '
-        text += labels[best]
-        characters.append({'character':labels[best], 'confidence':float(row[best]), 'box':box,
+        reasons = assess(row, ranking, labels, mode, glyphs[i])
+        chosen = '?' if reasons else labels[best]
+        text += chosen
+        characters.append({'character':chosen, 'suggestion':labels[best], 'uncertain':bool(reasons),
+                           'reasons':reasons, 'confidence':float(row[best]), 'box':box,
                            'space_before':space, 'experimental':labels[best]=='=',
                            'alternatives':[{'character':labels[int(j)],'confidence':float(row[j])} for j in ranking]})
     return jsonify(text=text, characters=characters, mode=mode)
