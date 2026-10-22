@@ -24,6 +24,20 @@ def sample(label='+',offset=0,kind='glyph'):
 
 
 class DatasetTests(unittest.TestCase):
+    def test_collection_studio_is_separate_from_restored_recognition_site(self):
+        from app import app
+        client=app.test_client()
+        home=client.get('/')
+        studio=client.get('/collect')
+        self.assertEqual(home.status_code,200);self.assertEqual(studio.status_code,200)
+        self.assertNotIn(b'dataset-sync.js',home.data)
+        self.assertNotIn(b'Private online dataset',home.data)
+        self.assertIn(b'Read handwriting',home.data)
+        self.assertIn(b'collector.js',studio.data)
+        self.assertIn(b'Word, number or short line',studio.data)
+        self.assertEqual(studio.headers['X-Robots-Tag'],'noindex, nofollow')
+        self.assertNotIn(self.key.encode(),studio.data)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory(dir=Path(__file__).parent);self.addCleanup(self.temp.cleanup)
         self.store=SQLiteTestStore(Path(self.temp.name)/'test.sqlite');self.store.initialize()

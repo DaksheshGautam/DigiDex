@@ -35,6 +35,14 @@ def health():
                    version=character_metrics.get('version','v1'), rejection=True,
                    mixed_candidate_weight=mixed_candidate_weight)
 
+
+@app.get('/collect')
+def collect():
+    response=app.make_response(render_template('collector.html',labels=labels))
+    response.headers['X-Robots-Tag']='noindex, nofollow'
+    response.headers['Cache-Control']='no-store'
+    return response
+
 @app.post('/predict')
 def predict():
     try:
