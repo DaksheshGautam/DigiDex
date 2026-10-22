@@ -1,39 +1,65 @@
-# GlyphDex character CNN
+# GlyphDex character recognition v2
 
-83 output classes: 10 digits, 26 uppercase letters, 26 lowercase letters, 20 handwritten symbols, and experimental `=`. Trained by Dakshesh Gautam in his logged-in Google Colab T4 GPU runtime on October 11, 2026. No local model training.
+Trained by Dakshesh Gautam in his logged-in Google Colab T4 GPU session on October 22, 2026. All model fitting happened in Colab. There are 83 classes: digits, uppercase/lowercase English letters, 20 handwritten symbols and experimental `=`.
 
-Held-out accuracy by recognition mode: digits **99.20%** (3,000), uppercase **97.22%** (7,800), lowercase **92.83%** (7,800), symbols **98.08%** (1,616). These metrics use the same model and held-out predictions, restricting candidate output classes to the stated group; selecting a mode for an incompatible drawing does not have this guarantee. They are not mixed-mode or complete-line accuracies. Detailed per-class and category measurements are preserved in the metrics file.
+## Focused-mode classification results
 
-The equivalent NumPy runtime matched all 246 exported Keras predicted labels spanning the 82 handwritten classes. Maximum absolute probability difference: **1.97e-6**. Six automated tests passed, including mixed `A7+` recognition, segmentation of dotted and stacked glyphs, input errors and legacy MNIST inference.
+Both models were evaluated on the **same** held-out individual characters. These scores are before uncertainty filtering; the correct focused mode must be selected. They are not complete-line or real website accuracy.
 
-## Data and evaluation
+| Mode | Test glyphs | Baseline | v2 |
+|---|---:|---:|---:|
+| Digits | 3,000 | 99.20% | 99.40% |
+| Uppercase | 7,800 | 97.22% | 97.67% |
+| Lowercase | 7,800 | 92.83% | 93.28% |
+| Symbols | 1,616 | 98.08% | 98.39% |
 
-- EMNIST ByClass: random seed 42, at most 2,700 official training images per class, 10% of those reserved for validation; at most 300 official test images per class. Images are transposed to upright orientation. Classes with fewer available examples use all available examples.
-- HASYv2: 20 selected symbol classes; the official fold-1 test images are held out. 10% (at least five) of the remaining images per class are reserved for validation. Only the training subset is sampled with replacement to 2,430 presentations per symbol. Repeated presentations are not new unique handwritten samples. This is a single-fold subset experiment, not the published 10-fold HASY benchmark. HASY IDs do not reliably identify individual writers, so this is not a writer-disjoint evaluation.
-- `=`: 2,430 procedural two-stroke training images, 270 procedural validation images. No real handwritten equals test set; this class is experimental and excluded from all reported test metrics.
-- Exact counts, epochs, history, per-class, category and focused-mode metrics are in [`metrics.json`](metrics.json). Class sampling means these results do not estimate the original dataset's natural-frequency accuracy.
+The gains are modest. No independent user-drawn website benchmark has been collected. Synthetic equals examples are excluded from the handwritten test metrics.
 
-Preprocessing is shared with the app: crop ink above intensity 25, preserve aspect ratio while fitting into a 20×20 region, paste into a 28×28 canvas and center by ink mass. HASY black-on-white images are inverted. Training augmentation applies small rotations and translations without horizontal flips.
+## Mixed-mode model selection and tradeoffs
 
-This run used 199,619 training presentations, 18,209 validation examples and 12 epochs. The entire training set is shuffled each epoch; smaller buffers are unsuitable because source images are collected in class order.
+The new model alone regressed on mixed lowercase recognition, so it is not used alone for mixed mode. The deployed runtime averages probabilities with **25% v2 + 75% baseline**. Candidate weights 0, 0.25, 0.5, 0.75 and 1 were compared on the shared held-out EMNIST validation prefix, excluding the extra new validation examples that the baseline had trained on. HASY validation examples were excluded from blending selection because its resampling changed the validation subsets. Selection maximized mean per-class validation correctness subject to a 0.5-point category regression limit. A separate held-out category regression check can fall back to the baseline. Model-selection use of validation and test gates must be considered when interpreting the reported comparisons.
 
-Architecture: Conv2D(32, 3, ReLU) → max pool → Conv2D(64, 3, ReLU) → max pool → flatten → Dense(128, ReLU) → Dropout(0.2) → Dense(83, softmax). Adam, sparse categorical cross-entropy, batch size 256, up to 12 epochs, validation-loss early stopping with best weights restored, and learning-rate reduction. Dropout is disabled during inference.
+| Mixed-mode input group | Baseline | Deployed blend |
+|---|---:|---:|
+| Digits | 84.43% | 85.77% |
+| Uppercase | 77.96% | 79.22% |
+| Lowercase | 66.60% | 66.21% |
+| Symbols | 97.90% | 98.02% |
 
-## Artifacts
+Mixed lowercase decreased by 0.40 points; mixed mode is not uniformly improved. O/0, I/l/1, upper/lowercase and x/× remain ambiguous. Use a focused mode whenever possible. Full trial details and the rejected unblended candidate's results remain in `metrics.json`.
 
-- `characters_cnn.keras`: complete Keras model with optimizer state.
-- `characters_cnn_weights.npz`: eight learned arrays for the equivalent NumPy CNN.
-- `labels.json`: ordered class labels; do not reorder without retraining.
-- `verification.npz`: up to three held-out glyphs per handwritten class with original Colab Keras probabilities, used solely to verify exported inference. It is not the complete test set.
-- Training code: [`train_characters_colab.py`](../../train_characters_colab.py); reproducible browser notebook: [`GlyphDex_Characters_Colab.ipynb`](../../GlyphDex_Characters_Colab.ipynb).
+## Data and training
 
-## Intended use and limitations
+- EMNIST ByClass: seed 42; cap 6,000 official training images per class, 10% reserved for validation; cap 300 official test images per class. Upright orientation is restored by transposing images. Normalization crops ink, preserves aspect ratio in a 20-pixel region, pads to 28×28 and centers by ink mass.
+- HASYv2: the same 20 selected symbols and official fold-1 test split. Hold out 10% (at least five) of available training images for validation. Only training images are resampled to 5,400 presentations per symbol. Repeated presentations are not new unique writers or images. HASY writer identities do not guarantee writer-disjoint evaluation; this is not its published 10-fold benchmark.
+- Equals: 5,400 procedural training examples and 600 procedural validation examples. No real handwritten equals test data; this class is experimental.
+- Total: **367,963 training presentations**, **30,304 validation examples**, **20,216 handwritten test examples**. Exact unique counts per class are recorded in the metrics.
+- CNN: Conv48(3×3, ReLU), pool2, Conv96(3×3, ReLU), pool2, Dense192(ReLU), Dropout0.3, Dense83(softmax). Adam and batch size 256.
+- Initial training: up to 24 epochs, early-stopped after 15 and restored the best validation-loss weights. Rotation, translation, zoom and random thinner/thicker ink were used.
+- Fine-tuning: inverse training-class-frequency weights, lighter geometry and 15% thicker ink, Adam starting at 0.0001. Early-stopped after 9 epochs, restoring the best weights. No test examples were fitted.
+- Simulated thicker-stroke tests improved all focused categories, but they are transformations of dataset glyphs, not independent real mouse drawings. See the comparison metrics.
 
-One line of separate characters on the app's white-on-black drawing canvas. The app splits groups of ink columns (merging breaks up to two empty pixels), keeps horizontally overlapping disconnected strokes together and reads left to right. Groups may contain multiple touching characters or separate parts of one badly spaced character. Bounding boxes and alternatives help users inspect these errors. Up to 32 characters per drawing; inference batches of four bound memory on Render Free.
+The clean notebook `GlyphDex_v2_Colab.ipynb` has separate numbered setup, preparation, training, fine-tuning, evaluation, comparison and export cells. Optional validated website corrections can be imported before training; the current release used none.
 
-O/0, I/l/1, some upper/lowercase pairs and x/× can be visually indistinguishable. Modes narrow labels but confidence remains the unrestricted model's probability, not a recalibrated guarantee. Softmax scores are not calibrated. No language model or word correction is used. Larger gaps heuristically produce spaces.
+## Runtime verification and artifacts
 
-Joined cursive, overlapping characters, multiple lines, document/photo OCR, arbitrary punctuation and mathematical expression layout are outside this release. `!`, `?`, `@`, commas and parentheses are not classes. The individual-glyph test accuracy is not whole-line accuracy and does not guarantee accuracy on mouse drawings.
+- `characters_cnn.keras` / `characters_cnn_weights.npz`: the new full model and NumPy weights.
+- `baseline_cnn.keras` / `baseline_cnn_weights.npz`: the retained October 11 character model used in the mixed-mode blend. Its original training code remains preserved in the v1 notebook and script.
+- `labels.json`: shared output ordering; never reorder it independently of weights.
+- `verification.npz`: three held-out examples from each of the 82 handwritten classes, with candidate, baseline and blended Colab probabilities. These are parity fixtures, not the full test set.
+- The NumPy runtime matched all 246 candidate and all 246 blended predicted labels. Maximum probability difference was **7.87e-6** for the new model and **2.03e-6** for the blend.
+- Thirteen checks cover both exports, mixed routing, a previously confidently wrong canvas plus sign, the HTTP API, segmentation, uncertain outcomes, writer-separated exports and full-line rejection accounting.
+- A 32-character mixed inference batch took 0.092 seconds locally; this is not a Render latency guarantee. The runtime processes four glyphs at a time to bound memory and needs no TensorFlow on Render.
+
+## Interface and limitations
+
+One line of separate, plain printed characters, up to 32 glyphs. Cursive, touching/overlapping letters, multiple lines, photos, arbitrary punctuation and mathematical expression layout remain unsupported. `!`, `?`, `@`, commas and parentheses are not trained classes. The app's `?` is an uncertainty placeholder.
+
+Segmentation uses column gaps and can merge a small detached dot with a nearby taller stem. It does not reliably split touching characters. Always check the boxes; save a whole-line example when segmentation is wrong.
+
+Conservative score/margin rules, known mixed-mode ambiguities and a filled-shape check flag some uncertain inputs. They are **not calibrated** and do not catch every confidently wrong or unsupported drawing. Copy requires resolving flagged glyphs. Alternative buttons and typed corrections are available. Model scores are estimates, not measured accuracy guarantees.
+
+Checked character crops and explicitly labelled complete lines can be saved in browser local storage and exported. Nothing is automatically uploaded or used for training. `correction_data.py` validates labels and duplicates and requires real writer-separated groups for train/validation/test. `evaluate_lines.py` can evaluate only test writers through the full pipeline, counting spaces, rejected characters and request failures. Browser identifiers alone do not establish distinct real writers. No real website accuracy is claimed by this release.
 
 ## Sources and attribution
 

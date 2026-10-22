@@ -52,6 +52,14 @@ class CharacterModelTests(unittest.TestCase):
         np.testing.assert_array_equal(result.argmax(1),self.reference['probabilities'].argmax(1))
         self.assertEqual(len(self.labels),83)
 
+    def test_mixed_runtime_matches_exported_colab_routing(self):
+        from app import character_probabilities
+        if 'mixed_probabilities' not in self.reference:
+            self.skipTest('Current export predates mixed-mode routing verification.')
+        result=character_probabilities(self.reference['images'],'mixed')
+        np.testing.assert_allclose(result,self.reference['mixed_probabilities'],atol=1e-5,rtol=1e-4)
+        np.testing.assert_array_equal(result.argmax(1),self.reference['mixed_probabilities'].argmax(1))
+
     def test_web_reads_left_to_right_and_preserves_legacy(self):
         from app import app
         client=app.test_client()

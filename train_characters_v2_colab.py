@@ -160,6 +160,26 @@ model.compile(optimizer='adam', loss='sparse_categorical_crossentropy', metrics=
 history = model.fit(train_ds, validation_data=(x_val,y_val), epochs=24, verbose=2,
                     callbacks=[tf.keras.callbacks.EarlyStopping(monitor='val_loss',patience=5,restore_best_weights=True),
                                tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss',patience=2,factor=.5,min_lr=1e-5)])
+# Balance classes before fine-tuning: the larger capped sample is not uniform.
+class_counts = np.bincount(y_train,minlength=len(labels))
+class_weights = {i:float(len(y_train)/(len(labels)*n)) for i,n in enumerate(class_counts)}
+augmentation = tf.keras.Sequential([tf.keras.layers.RandomRotation(.025,fill_mode='constant'),
+    tf.keras.layers.RandomTranslation(.04,.04,fill_mode='constant'),tf.keras.layers.RandomZoom(.08,fill_mode='constant')])
+def balanced_augment(x,y):
+    x=augmentation(x,training=True)
+    pick=tf.random.uniform([tf.shape(x)[0],1,1,1])
+    thick=tf.nn.max_pool2d(x,2,1,'SAME')
+    return tf.where(pick>.85,thick,x),y
+balanced_ds=tf.data.Dataset.from_tensor_slices((x_train,y_train)).shuffle(len(x_train),seed=43).batch(256).map(balanced_augment,num_parallel_calls=2).prefetch(2)
+model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4),loss='sparse_categorical_crossentropy',metrics=['accuracy'])
+first_history={k:list(v) for k,v in history.history.items()}
+balanced_history=model.fit(balanced_ds,validation_data=(x_val,y_val),class_weight=class_weights,epochs=10,verbose=2,
+    callbacks=[tf.keras.callbacks.EarlyStopping(monitor='val_loss',patience=3,restore_best_weights=True),
+    tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss',patience=1,factor=.5,min_lr=1e-5)])
+for key in history.history:
+    history.history[key] += balanced_history.history.get(key,[])
+print('Balanced fine-tuning complete.',flush=True)
+
 probabilities = model.predict(x_test,batch_size=256,verbose=0)
 correct = probabilities.argmax(1) == y_test
 categories = {}
@@ -176,6 +196,13 @@ metrics = {'dataset':'EMNIST ByClass capped per-class sample + HASYv2 fold-1 sub
            'counts':counts, 'history':history.history, 'experimental_symbols':['='],
            'per_class_accuracy':{labels[i]:float(correct[y_test==i].mean()) for i in range(82)},
            'test_note':'Held-out individual characters, not whole-line accuracy. Equals has synthetic training/validation only and is excluded from test metrics. HASY fold-1 only; not the 10-fold benchmark.'}
+display(HTML('<h3>Held-out accuracy by recognition mode</h3><table><tr><th>Mode</th><th>Examples</th><th>Accuracy</th></tr>' + ''.join(f"<tr><td>{name}</td><td>{v['examples']:,}</td><td>{v['accuracy']*100:.2f}%</td></tr>" for name,v in mode_accuracy.items()) + '</table><p>Correct focused mode assumed. Individual glyphs, not complete-line or real website accuracy.</p>'))
+import matplotlib.pyplot as plt
+plt.figure(figsize=(8,3))
+plt.plot(history.history['val_loss'],label='Validation loss')
+plt.axvline(len(first_history['loss'])-.5,color='gray',linestyle='--',label='Balanced fine-tuning starts')
+plt.xlabel('Epoch (zero-based)'); plt.ylabel('Loss'); plt.legend(); plt.grid(alpha=.2); plt.tight_layout(); plt.show()
+
 baseline_url = 'https://raw.githubusercontent.com/DaksheshGautam/GlyphDex/5d9871689a129986c97478151998074e2354f0ec/models/characters/characters_cnn.keras'
 download(baseline_url, 'baseline.keras')
 baseline = tf.keras.models.load_model('baseline.keras')
@@ -204,11 +231,48 @@ for name, low, high in [('digits',0,10),('uppercase',10,36),('lowercase',36,62),
     comparison['thicker_strokes'][name] = {'examples':int(mask.sum()),
         'baseline':float((variant_old[mask,low:high].argmax(1)+low==variant_y[mask]).mean()),
         'candidate':float((variant_new[mask,low:high].argmax(1)+low==variant_y[mask]).mean())}
-print('COMPARISON:',json.dumps(comparison),flush=True)
+# Select a mixed-mode blend using validation glyphs held out from BOTH runs.
+# The old validation prefix remains in the larger new validation prefix for EMNIST.
+# HASY validation samples changed with resampling RNG, so exclude them here.
+download('https://raw.githubusercontent.com/DaksheshGautam/GlyphDex/5d9871689a129986c97478151998074e2354f0ec/models/characters/metrics.json','baseline_metrics.json')
+baseline_metrics=json.loads(Path('baseline_metrics.json').read_text())
+shared_ids=np.concatenate([np.flatnonzero(y_val==i)[:baseline_metrics['counts'][labels[i]]['validation']] for i in range(62)])
+shared_y=y_val[shared_ids]
+shared_old=baseline.predict(x_val[shared_ids],batch_size=256,verbose=0)
+shared_new=model.predict(x_val[shared_ids],batch_size=256,verbose=0)
+blend_trials=[]
+for weight in [0.,.25,.5,.75,1.]:
+    blend=shared_new*weight+shared_old*(1-weight)
+    predicted=blend.argmax(1)
+    per_class=[float((predicted[shared_y==i]==i).mean()) for i in range(62)]
+    groups={name:float((predicted[(shared_y>=low)&(shared_y<high)]==shared_y[(shared_y>=low)&(shared_y<high)]).mean()) for name,low,high in [('digits',0,10),('uppercase',10,36),('lowercase',36,62)]}
+    blend_trials.append({'candidate_weight':weight,'macro_validation_accuracy':float(np.mean(per_class)),'groups':groups})
+baseline_groups=blend_trials[0]['groups']
+eligible=[t for t in blend_trials if all(t['groups'][k]>=baseline_groups[k]-.005 for k in baseline_groups)]
+chosen=max(eligible,key=lambda t:t['macro_validation_accuracy'])
+mixed_weight=chosen['candidate_weight']
+mixed_probabilities=probabilities*mixed_weight+old_probabilities*(1-mixed_weight)
+mixed_groups={}
+for name,low,high in [('digits',0,10),('uppercase',10,36),('lowercase',36,62),('symbols',62,83)]:
+    mask=(y_test>=low)&(y_test<high)
+    mixed_groups[name]={'examples':int(mask.sum()),'baseline':comparison['mixed_by_category'][name]['baseline'],
+        'candidate':float((mixed_probabilities[mask].argmax(1)==y_test[mask]).mean())}
+if any(v['candidate']<v['baseline']-.005 for v in mixed_groups.values()):
+    mixed_weight=0.
+    mixed_probabilities=old_probabilities.copy()
+    for v in mixed_groups.values():v['candidate']=v['baseline']
+comparison['mixed_runtime']=mixed_groups
+comparison['mixed_routing']={'candidate_weight':mixed_weight,'validation_choice':chosen,'validation_trials':blend_trials,
+    'note':'Blend selected on shared held-out EMNIST validation. Regression gate falls back to baseline if a test category drops more than 0.5 points. Focused modes use the new model.'}
+for title,key in [('Focused recognition modes','modes'),('New model alone in mixed mode','mixed_by_category'),('Selected mixed-mode runtime','mixed_runtime'),('Simulated thicker strokes, focused modes','thicker_strokes')]:
+    display(HTML('<h3>'+title+'</h3><table><tr><th>Group</th><th>Baseline</th><th>Candidate</th><th>Change (points)</th></tr>' + ''.join(f"<tr><td>{name}</td><td>{v['baseline']*100:.2f}%</td><td>{v['candidate']*100:.2f}%</td><td>{(v['candidate']-v['baseline'])*100:+.2f}</td></tr>" for name,v in comparison[key].items()) + '</table>'))
+print('Baseline comparison complete. Real website accuracy requires independent writer samples.',flush=True)
 metrics['comparison'] = comparison
+metrics['routing']={'focused':'v2','mixed_candidate_weight':mixed_weight}
 metrics['version'] = 'v2'
 metrics['architecture'] = 'Conv48, pool, Conv96, pool, Dense192, Dropout0.3, Dense83'
 metrics['augmentation'] = 'rotation, translation, zoom, random ink dilation/erosion'
+metrics['fine_tuning'] = {'epochs':len(balanced_history.history['loss']),'class_weights':'inverse training-class frequency','augmentation':'lighter geometry, 15% thicker ink','initial_epochs':len(first_history['loss'])}
 metrics['real_website_test_examples'] = 0
 website_test = globals().get('website_test')
 if website_test is not None:
@@ -223,14 +287,15 @@ if website_test is not None:
                 'accuracy':float((website_probabilities[mask,low:high].argmax(1)+low==website_y[mask]).mean())}
 out = Path('glyphdex_characters_v2'); out.mkdir(exist_ok=True)
 model.save(out/'characters_cnn.keras')
+baseline.save(out/'baseline_cnn.keras')
+np.savez_compressed(out/'baseline_cnn_weights.npz',**{f'w{i}':w for i,w in enumerate(baseline.get_weights())})
 np.savez_compressed(out/'characters_cnn_weights.npz',**{f'w{i}':w for i,w in enumerate(model.get_weights())})
 (out/'labels.json').write_text(json.dumps(labels,ensure_ascii=False,indent=2))
 (out/'metrics.json').write_text(json.dumps(metrics,ensure_ascii=False,indent=2))
 sample_ids = np.concatenate([np.flatnonzero(y_test==i)[:3] for i in range(82)])
-np.savez_compressed(out/'verification.npz',images=x_test[sample_ids],labels=y_test[sample_ids],probabilities=probabilities[sample_ids])
+np.savez_compressed(out/'verification.npz',images=x_test[sample_ids],labels=y_test[sample_ids],probabilities=probabilities[sample_ids],baseline_probabilities=old_probabilities[sample_ids],mixed_probabilities=mixed_probabilities[sample_ids])
 with zipfile.ZipFile('glyphdex_characters_v2.zip','w',zipfile.ZIP_DEFLATED) as archive:
     for file in out.iterdir(): archive.write(file,file.name)
-print('TEST_METRICS:',json.dumps(categories),flush=True)
 print('MODEL_READY: glyphdex_characters_v2.zip',flush=True)
 blob = base64.b64encode(Path('glyphdex_characters_v2.zip').read_bytes()).decode()
 display(HTML('<a id="character-model-export" download="glyphdex_characters_v2.zip" href="data:application/zip;base64,'+blob+'">Download trained character model</a>'))

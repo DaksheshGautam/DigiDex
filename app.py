@@ -17,6 +17,9 @@ metrics = json.loads((ROOT / 'models/metrics.json').read_text())
 character_model = DigitModel(ROOT / 'models/characters/characters_cnn_weights.npz')
 labels = json.loads((ROOT / 'models/characters/labels.json').read_text(encoding='utf-8'))
 character_metrics = json.loads((ROOT / 'models/characters/metrics.json').read_text(encoding='utf-8'))
+mixed_candidate_weight = float(character_metrics.get('routing',{}).get('mixed_candidate_weight',1.0))
+baseline_model = (DigitModel(ROOT / 'models/characters/baseline_cnn_weights.npz')
+                  if mixed_candidate_weight < 1 else None)
 
 @app.get('/')
 def index():
@@ -27,7 +30,8 @@ def index():
 @app.get('/healthz')
 def health():
     return jsonify(status='ok', model='GlyphDex character CNN', classes=len(labels),
-                   version=character_metrics.get('version','v1'), rejection=True)
+                   version=character_metrics.get('version','v1'), rejection=True,
+                   mixed_candidate_weight=mixed_candidate_weight)
 
 @app.post('/predict')
 def predict():
@@ -53,6 +57,20 @@ def oversized(_error):
     return jsonify(error='The drawing is too large. Please keep the image under 2 MB.'), 413
 
 
+def character_probabilities(glyphs, mode):
+    batches=[]
+    for i in range(0,len(glyphs),4):
+        images=glyphs[i:i+4]
+        if mode=='mixed' and baseline_model is not None:
+            row=baseline_model.predict(images)*(1-mixed_candidate_weight)
+            if mixed_candidate_weight:
+                row+=character_model.predict(images)*mixed_candidate_weight
+        else:
+            row=character_model.predict(images)
+        batches.append(row)
+    return np.concatenate(batches)
+
+
 def predict_line(image, mode):
     if mode not in ('mixed', 'digits', 'uppercase', 'lowercase', 'symbols'):
         return jsonify(error='Choose a valid recognition mode.'), 400
@@ -61,7 +79,7 @@ def predict_line(image, mode):
     except ValueError as exc:
         return jsonify(error=str(exc)), 400
     # Bound convolution working memory on Render's free 512 MB service.
-    probabilities = np.concatenate([character_model.predict(glyphs[i:i+4]) for i in range(0, len(glyphs), 4)])
+    probabilities = character_probabilities(glyphs, mode)
     allowed = {'mixed': np.arange(len(labels)), 'digits': np.arange(10),
                'uppercase': np.arange(10,36), 'lowercase': np.arange(36,62),
                'symbols': np.arange(62,len(labels))}[mode]
