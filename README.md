@@ -22,6 +22,8 @@ After checking every character and bounding box, choose **Save checked examples*
 
 Validate exports with `python correction_data.py writer1.json writer2.json writer3.json`. It produces `website_corrections.npz` and a split report. At least three distinct real writers are required: each writer stays entirely in train, validation or test. Browser group identifiers are only a starting point; merge groups from the same person and separate exports for different people before preparing the dataset. Exact duplicate images with conflicting labels or writer groups are rejected. These exports are not committed to the public repository. No real website accuracy is claimed until those independent examples exist and are evaluated.
 
+Upload the validated `website_corrections.npz` through Colab's Files panel **before** running the notebook. Section 6 adds only its training and validation groups to those splits. Section 10 evaluates its separate website test group by recognition mode. Without that file, the notebook trains only on the public datasets and reports zero real website test examples.
+
 The original **MNIST-only** model remains in [`models/`](models/) for compatibility with requests that omit `mode`:
 
 - [`mnist_cnn.keras`](models/mnist_cnn.keras): complete Keras model.

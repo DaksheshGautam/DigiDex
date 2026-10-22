@@ -127,6 +127,16 @@ x_train, y_train = np.stack(parts['train'][0]), np.array(parts['train'][1])
 x_val, y_val = np.stack(parts['validation'][0]), np.array(parts['validation'][1])
 x_test, y_test = np.stack(parts['test'][0]), np.array(parts['test'][1])
 del parts
+website_test = None
+if Path('website_corrections.npz').exists():
+    # Upload only an export prepared with correction_data.py and verified writer groups.
+    with np.load('website_corrections.npz',allow_pickle=False) as web:
+        x_train = np.concatenate([x_train, web['train_images']])
+        y_train = np.concatenate([y_train, web['train_labels']])
+        x_val = np.concatenate([x_val, web['validation_images']])
+        y_val = np.concatenate([y_val, web['validation_labels']])
+        website_test = (web['test_images'].copy(),web['test_labels'].copy())
+    print('Included writer-separated website corrections. Website test glyphs remain held out.',flush=True)
 print('DATA_READY:', len(x_train), len(x_val), len(x_test), 'classes:', len(labels), flush=True)
 tf.keras.backend.clear_session()
 tf.keras.utils.set_random_seed(42)
@@ -200,6 +210,17 @@ metrics['version'] = 'v2'
 metrics['architecture'] = 'Conv48, pool, Conv96, pool, Dense192, Dropout0.3, Dense83'
 metrics['augmentation'] = 'rotation, translation, zoom, random ink dilation/erosion'
 metrics['real_website_test_examples'] = 0
+website_test = globals().get('website_test')
+if website_test is not None:
+    website_x,website_y = website_test
+    website_probabilities = model.predict(website_x,batch_size=256,verbose=0)
+    metrics['real_website_test_examples'] = len(website_y)
+    metrics['website_modes'] = {}
+    for name,low,high in [('digits',0,10),('uppercase',10,36),('lowercase',36,62),('symbols',62,83)]:
+        mask = (website_y>=low)&(website_y<high)
+        if mask.any():
+            metrics['website_modes'][name] = {'examples':int(mask.sum()),
+                'accuracy':float((website_probabilities[mask,low:high].argmax(1)+low==website_y[mask]).mean())}
 out = Path('glyphdex_characters_v2'); out.mkdir(exist_ok=True)
 model.save(out/'characters_cnn.keras')
 np.savez_compressed(out/'characters_cnn_weights.npz',**{f'w{i}':w for i,w in enumerate(model.get_weights())})
