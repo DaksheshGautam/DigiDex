@@ -59,7 +59,9 @@ Segmentation uses column gaps and can merge a small detached dot with a nearby t
 
 Conservative score/margin rules, known mixed-mode ambiguities and a filled-shape check flag some uncertain inputs. They are **not calibrated** and do not catch every confidently wrong or unsupported drawing. Copy requires resolving flagged glyphs. Alternative buttons and typed corrections are available. Model scores are estimates, not measured accuracy guarantees.
 
-Checked character crops and explicitly labelled complete lines can be saved in browser local storage and exported. Nothing is automatically uploaded or used for training. `correction_data.py` validates labels and duplicates and requires real writer-separated groups for train/validation/test. `evaluate_lines.py` can evaluate only test writers through the full pipeline, counting spaces, rejected characters and request failures. Browser identifiers alone do not establish distinct real writers. No real website accuracy is claimed by this release.
+The main recognition page retains browser-only checked-example exports and does not upload drawings automatically. The separate temporary `/collect` studio lets an authenticated owner save explicitly labelled single characters and complete lines to a private PostgreSQL dataset, including original images and strokes. Its queue retries temporary failures. Collecting examples does not retrain or change the released model. Private samples and owner keys are never included in the public repository.
+
+`correction_data.py` validates labels and duplicates. Writer splits keep real distinct writers apart; drawing splits support personalization with whole drawings kept together but may share writers. Personalization results must not be described as unseen-writer accuracy. `evaluate_lines.py` follows the corresponding test groups and counts spaces, rejected characters and request failures. Whole-line samples do not automatically enter classifier training. The released model used no private website samples, and no independent website accuracy is claimed.
 
 ## Sources and attribution
 

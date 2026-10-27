@@ -8,11 +8,44 @@ Write one spaced line with up to 32 characters. Dots and stacked strokes remain 
 
 **Live app:** [digidex-dakshesh.onrender.com](https://digidex-dakshesh.onrender.com/)
 
+**Temporary drawing studio:** [Collect private training examples](https://digidex-dakshesh.onrender.com/collect). The recognition app and collection studio have separate interfaces.
+
+## Screenshots
+
+### Recognition website
+
+![Current GlyphDex recognition website with character modes and separate-print guidance](docs/images/glyphdex-recognition.png)
+
+### Temporary drawing studio
+
+![GlyphDex Studio drawing form, canvas, pen controls and private save button](docs/images/glyphdex-studio.png)
+
+Screenshots show the deployed interface on October 27, 2026, with blank canvases. The studio screenshot is disconnected and contains no private drawings, dataset contents or access keys. Connect with your private owner key to enable saving.
+
 ## Trained model
 
 The character model was trained in the owner's logged-in **Google Colab T4 GPU** session. Full Keras and equivalent NumPy weights for both the new model and retained baseline are committed in [`models/characters/`](models/characters/), with labels, measured metrics, verification examples and a model card. Training and inference share [`character_preprocessing.py`](character_preprocessing.py).
 
-Held-out accuracy by recognition mode: digits **99.40%**, uppercase **97.67%**, lowercase **93.28%**, symbols **98.39%**. Each result measures classification before uncertainty checks and assumes the correct focused mode is selected; these are individual-character results, not mixed-mode or complete-line accuracy. Synthetic `=` is excluded. See the model card for sample counts and limitations.
+The model is a custom TensorFlow/Keras CNN trained on EMNIST letters/digits and a selected HASYv2 symbol subset. It receives one normalized 28x28 grayscale character and predicts one of 83 classes:
+
+```text
+28x28 grayscale input
+  -> Conv2D(48, 3x3, ReLU) -> MaxPool(2x2)
+  -> Conv2D(96, 3x3, ReLU) -> MaxPool(2x2)
+  -> Flatten -> Dense(192, ReLU) -> Dropout(0.3)
+  -> Dense(83, softmax)
+```
+
+Focused modes use the v2 CNN. Mixed mode combines character probabilities from two separately trained CNNs: **25% v2 + 75% baseline**. These percentages are model weights, not accuracy figures. The blend limits mixed-mode regressions observed with v2 alone; similar-looking characters remain difficult.
+
+| Recognition mode | Held-out accuracy | Test characters |
+| --- | ---: | ---: |
+| Digits | **99.40%** | 3,000 |
+| Uppercase letters | **97.67%** | 7,800 |
+| Lowercase letters | **93.28%** | 7,800 |
+| Symbols | **98.39%** | 1,616 |
+
+Each result measures classification before uncertainty checks and assumes the correct focused mode is selected. These are individual-character results, not mixed-mode, complete-word or live website accuracy. Synthetic `=` is excluded. See the [model card](models/characters/MODEL_CARD.md) for mixed-mode results by category and evaluation limitations.
 
 The original training run is preserved in [`GlyphDex_Characters_Colab.ipynb`](GlyphDex_Characters_Colab.ipynb). The new [`GlyphDex_v2_Colab.ipynb`](GlyphDex_v2_Colab.ipynb) has 12 numbered code sections for GPU setup, downloads, data preparation, stroke augmentation, training, separate mode evaluation, class-balanced fine-tuning, baseline comparison and export. Use **Runtime → Run all** on a free Colab T4. It uses more EMNIST examples and varied stroke thickness. The released model trained for 15 initial epochs and 9 class-balanced fine-tuning epochs. Focused modes use v2. Mixed mode uses 25% v2 and 75% baseline probabilities, selected on shared held-out EMNIST validation with a category regression gate. The model card records the mixed-mode tradeoffs; improvements are modest and real mouse-drawing accuracy is not yet established. Training requires TensorFlow; the deployed app only needs NumPy, Pillow, Flask, Gunicorn and Psycopg for optional private storage. Complete-line and real website accuracy require their own held-out evaluation.
 
@@ -65,41 +98,6 @@ Configure `GLYPHDEX_DATABASE_URL` with a dedicated restricted PostgreSQL role, `
 
 `POST /dataset/session` accepts an owner key and creates the browser session. Cookie-authenticated writes require `X-Dataset-CSRF` and the same HTTPS origin. Colab uses `Authorization: Bearer <owner-key>` for `GET /dataset/export?limit=200&cursor=...`. Exports are private and uncached. Each page includes `examples`, `lines`, and `next_cursor`; follow pages until the cursor is null. No key or database URI appears in API error messages.
 
-## Original project
+## Project history
 
-The original research notebooks and project description are preserved below.
-
-# 👩‍💻 DigiDex
-# Determining Digits Smartly
-
-# 🔢 Building an ML Model for digit recognition
-
-🤖 In this project, we have created an ML model that uses CNN classification algorithm to read digits and identify them. We have worked upon a standard MNIST dataset of thousands of digits. By using this dataset, we have trained, tested and validated our model.
-
-We have tested various algorithms and compared their accuracy, precision, F1 score and recall to generate the most effective model.
-
-📊 Here are the comparisons of various metrics and other relevant plots:
-
-
-![Screenshot 2023-03-25 214810](https://user-images.githubusercontent.com/122363068/227737713-5ac6843e-c9aa-4983-8af1-f460cb452888.png)
-
-![Screenshot 2023-03-25 225914](https://user-images.githubusercontent.com/122363068/227737759-1b6bf77b-8fbe-45db-bd46-a71393c961c0.png)
-
-![Screenshot 2023-03-25 225937](https://user-images.githubusercontent.com/122363068/227737792-9e7dc5a8-afdb-45dc-b744-44b5067403c4.png)
-
-
-Through this project we got to learn a lot about Machine Learning and AI Models, we trained our model on large data sets, implemented their splitting and formulated an organised and effective code.
-
-
-💻 The tech stack we used:
-
-1. Python
-2. Libraries: matplotlib, pandas, keras, scikit, TensorFlow etc.
-3. Classification algorithms: CNN, Randon Forest,SVM, KNN, DBN, MLP.
-4. Google Collab
-
-
-🖋 END NOTE:
-During the course of this project, we got to comprehend various research articles which supplemented us in writing an optimised code and intricately understanding the mechanism of machine learning.
-
-
+GlyphDex began as DigiDex, a single-digit MNIST experiment. Original research notebooks are retained for historical context. The current release uses the character CNN and deployment described above; older digit-only experiment plots are not presented as current GlyphDex results.
